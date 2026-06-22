@@ -411,6 +411,8 @@ const DETECTION_INTERVAL = 150;
 const SPEED_THRESHOLD = 15;
 const MIN_FRAMES_FOR_STOP = 8;
 const COOLDOWN_MS = 3000;
+const STOP_SIGN_HOLD_MS = 2000;
+const STOP_SPEED_THRESHOLD = 3;
 
 function classifyLightColor(video, bbox) {
   const [x, y, w, h] = bbox;
@@ -428,20 +430,36 @@ function classifyLightColor(video, bbox) {
     { name: 'green',  yStart: thirdH * 2,   yEnd: h },
   ];
 
-  let brightest = { name: 'unknown', brightness: 0 };
+  let brightest = { name: 'unknown', brightness: 0, r: 0, g: 0, b: 0 };
   for (const region of regions) {
     const imgData = sCtx.getImageData(0, region.yStart, w, region.yEnd - region.yStart);
     const px = imgData.data;
-    let totalBrightness = 0;
+    let totalR = 0, totalG = 0, totalB = 0, totalBrightness = 0;
     const pixelCount = px.length / 4;
     for (let i = 0; i < px.length; i += 4) {
+      totalR += px[i];
+      totalG += px[i + 1];
+      totalB += px[i + 2];
       totalBrightness += px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
     }
     const avg = totalBrightness / pixelCount;
     if (avg > brightest.brightness) {
-      brightest = { name: region.name, brightness: avg };
+      brightest = {
+        name: region.name, brightness: avg,
+        r: totalR / pixelCount, g: totalG / pixelCount, b: totalB / pixelCount,
+      };
     }
   }
+
+  const { r, g, b, name } = brightest;
+  if (name === 'red' && r > g * 1.2 && r > b * 1.2) return 'red';
+  if (name === 'yellow' && r > b * 1.3 && g > b * 1.3) return 'yellow';
+  if (name === 'green' && g > r * 0.8 && g > b) return 'green';
+
+  if (r > g * 1.4 && r > b * 1.4) return 'red';
+  if (g > r * 1.0 && g > b * 1.2) return 'green';
+  if (r > b * 1.3 && g > b * 1.3 && r > 80) return 'yellow';
+
   return brightest.name;
 }
 
@@ -491,7 +509,7 @@ function BrowserCameraMode({ onDetection }) {
     if (onDetection) {
       onDetection({
         type: 'critical',
-        message: `🛑 Stop Sign Violation — vehicle passed at ${Math.round(avgSpeed)}px/f avg speed (${framesVisible} frames visible, needed ${MIN_FRAMES_FOR_STOP}+ to count as stopped)`,
+        message: `🛑 Stop Sign Violation — vehicle did not stop for the required ${STOP_SIGN_HOLD_MS / 1000}s (avg speed ${Math.round(avgSpeed)}px/f, ${framesVisible} frames visible)`,
         scoreChange: -10,
       });
     }
@@ -520,7 +538,30 @@ function BrowserCameraMode({ onDetection }) {
       totalDisplacement += Math.sqrt(dx * dx + dy * dy);
     }
     const avgSpeed = totalDisplacement / (track.positions.length - 1);
-    if (avgSpeed > SPEED_THRESHOLD && track.framesVisible < MIN_FRAMES_FOR_STOP) {
+
+    let stoppedDuration = 0;
+    if (track.timestamps.length >= 2) {
+      let stopStart = null;
+      for (let i = 1; i < track.positions.length; i++) {
+        const dx = track.positions[i].x - track.positions[i - 1].x;
+        const dy = track.positions[i].y - track.positions[i - 1].y;
+        const speed = Math.sqrt(dx * dx + dy * dy);
+        if (speed <= STOP_SPEED_THRESHOLD) {
+          if (stopStart === null) stopStart = track.timestamps[i - 1];
+        } else {
+          if (stopStart !== null) {
+            stoppedDuration = Math.max(stoppedDuration, track.timestamps[i - 1] - stopStart);
+            stopStart = null;
+          }
+        }
+      }
+      if (stopStart !== null) {
+        stoppedDuration = Math.max(stoppedDuration, track.timestamps[track.timestamps.length - 1] - stopStart);
+      }
+    }
+
+    const didStop = stoppedDuration >= STOP_SIGN_HOLD_MS;
+    if (!didStop) {
       addStopSignViolation(avgSpeed, track.framesVisible);
     }
   }, [addStopSignViolation]);
@@ -669,14 +710,11 @@ function BrowserCameraMode({ onDetection }) {
           const scy = sy + sh / 2;
 
           if (!stopTrackingRef.current) {
-            stopTrackingRef.current = { positions: [], framesVisible: 0 };
-            // First-detected info log — commented out (log only on violation)
-            // if (onDetection) {
-            //   onDetection({ type: 'info', message: `🔍 Stop sign detected (${Math.round(stopSign.score * 100)}% confidence)`, scoreChange: 0 });
-            // }
+            stopTrackingRef.current = { positions: [], timestamps: [], framesVisible: 0 };
           }
           const track = stopTrackingRef.current;
           track.positions.push({ x: scx, y: scy });
+          track.timestamps.push(Date.now());
           track.framesVisible++;
 
           let currentSpeed = 0;
