@@ -278,11 +278,12 @@ async def driving_analysis_ws(websocket: WebSocket):
 #   2. Each frame is JPEG-encoded and sent as a base64 string in a JSON envelope
 #   3. Frontend decodes and sets it as <img src="data:image/jpeg;base64,...">
 #
-# iPhone via Lightning setup:
-#   Install EpocCam (Elgato) or Camo on both iPhone AND Windows PC.
-#   The app registers a virtual DirectShow webcam driver so OpenCV can
-#   access it by index (usually 1 or 2 if your laptop has a built-in webcam at 0).
-#   Use GET /api/cameras to find which index your iPhone appears on.
+# iPhone via Lightning setup (Iriun Webcam — no separate driver install needed):
+#   ① PC에 Iriun Webcam for Windows 설치 (https://iriun.com) — 가상 DirectShow 드라이버 자동 포함
+#   ② iPhone에 Iriun Webcam 앱 설치 후 실행
+#   ③ Lightning 케이블로 iPhone과 PC 연결
+#   ④ GET /api/cameras 엔드포인트로 어느 device index로 잡히는지 확인
+#      (내장 웹캠이 0번이면 보통 1 또는 2번으로 잡힘)
 # ---------------------------------------------------------------------------
 
 # Target resolution & quality (trade-off: quality ↑ → latency ↑)

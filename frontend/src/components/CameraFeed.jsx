@@ -10,7 +10,8 @@
 //    - Backend opens the selected device via OpenCV (DirectShow)
 //    - Backend WebSocket pushes JPEG frames as base64 at ~30 fps
 //    - Frontend draws frames into an <img> tag via data URI
-//    - iPhone must be connected via Lightning + EpocCam or Camo running
+//    - iPhone must be connected via Lightning + Iriun Webcam running
+//      (install Iriun Webcam app on iPhone + Iriun Webcam for Windows on PC)
 // ============================================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -349,9 +350,14 @@ function LocalCameraMode() {
       {!streaming && (
         <p style={{ fontSize: '0.7rem', color: '#475569', lineHeight: 1.5 }}>
           💡 iPhone via Lightning?&nbsp;
-          Install <strong style={{ color: '#60a5fa' }}>EpocCam</strong> (Elgato) or{' '}
-          <strong style={{ color: '#60a5fa' }}>Camo</strong> on your iPhone <em>and</em> PC,
-          plug in via Lightning, then click <em>Scan</em> to detect the device.
+          <strong style={{ color: '#60a5fa' }}>① </strong>
+          <a href="https://iriun.com" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>
+            Iriun Webcam for Windows
+          </a>{' '}
+          를 PC에 설치하고,{' '}
+          <strong style={{ color: '#60a5fa' }}>② </strong>
+          iPhone에 <strong style={{ color: '#60a5fa' }}>Iriun Webcam</strong> 앱을 설치한 뒤,{' '}
+          Lightning 케이블로 연결하고 앱을 실행하세요. 그 다음 <em>Scan</em>을 클릭하면 장치가 자동으로 감지됩니다.
         </p>
       )}
 
