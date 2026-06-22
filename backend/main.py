@@ -120,32 +120,7 @@ class DummyVisionAI:
             "type": "critical",
             "message": "🚦 Violation: Ran a Red Light",
             "scoreChange": -10,
-        },
-        {
-            "type": "critical",
-            "message": "🚗 Violation: Unsafe lane change detected",
-            "scoreChange": -10,
-        },
-        {
-            "type": "warning",
-            "message": "⚠️  Warning: Following distance too close (tailgating)",
-            "scoreChange": -5,
-        },
-        {
-            "type": "warning",
-            "message": "⚠️  Warning: Speed 15 km/h above limit detected",
-            "scoreChange": -5,
-        },
-        {
-            "type": "warning",
-            "message": "⚠️  Warning: Sudden hard braking event",
-            "scoreChange": -5,
-        },
-        {
-            "type": "warning",
-            "message": "📱 Warning: Mobile phone use suspected",
-            "scoreChange": -5,
-        },
+        }
     ]
 
     async def analyze_frame(self, frame: Optional[bytes]) -> Optional[dict]:
@@ -163,14 +138,9 @@ class DummyVisionAI:
         dict | None
             Event dict {"type", "message", "scoreChange"} or None for no event.
         """
-        # ----------------------------------------------------------------
-        # MOCK LOGIC — delete this block when integrating the real model
-        # ----------------------------------------------------------------
-        # Randomly decide whether to emit an event this cycle
-        if random.random() < 0.75:   # ~75 % chance each poll cycle
-            return random.choice(self._MOCK_EVENTS)
+        # Mock disabled — real detections come from the browser TF.js pipeline.
+        # Swap this with real YOLO inference when integrating the model.
         return None
-        # ----------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -279,11 +249,11 @@ async def driving_analysis_ws(websocket: WebSocket):
 #   3. Frontend decodes and sets it as <img src="data:image/jpeg;base64,...">
 #
 # iPhone via Lightning setup (Iriun Webcam — no separate driver install needed):
-#   ① PC에 Iriun Webcam for Windows 설치 (https://iriun.com) — 가상 DirectShow 드라이버 자동 포함
-#   ② iPhone에 Iriun Webcam 앱 설치 후 실행
-#   ③ Lightning 케이블로 iPhone과 PC 연결
-#   ④ GET /api/cameras 엔드포인트로 어느 device index로 잡히는지 확인
-#      (내장 웹캠이 0번이면 보통 1 또는 2번으로 잡힘)
+#   ① Install Iriun Webcam for Windows on PC (https://iriun.com) — virtual DirectShow driver is automatically included
+#   ② Install and launch the Iriun Webcam app on iPhone
+#   ③ Connect iPhone and PC with a Lightning cable
+#   ④ Check which device index is assigned via the GET /api/cameras endpoint
+#      (If the built-in webcam is index 0, it is usually assigned index 1 or 2)
 # ---------------------------------------------------------------------------
 
 # Target resolution & quality (trade-off: quality ↑ → latency ↑)

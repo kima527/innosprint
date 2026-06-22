@@ -351,13 +351,13 @@ function LocalCameraMode() {
         <p style={{ fontSize: '0.7rem', color: '#475569', lineHeight: 1.5 }}>
           💡 iPhone via Lightning?&nbsp;
           <strong style={{ color: '#60a5fa' }}>① </strong>
+          Install{' '}
           <a href="https://iriun.com" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>
             Iriun Webcam for Windows
           </a>{' '}
-          를 PC에 설치하고,{' '}
+          on your PC,{' '}
           <strong style={{ color: '#60a5fa' }}>② </strong>
-          iPhone에 <strong style={{ color: '#60a5fa' }}>Iriun Webcam</strong> 앱을 설치한 뒤,{' '}
-          Lightning 케이블로 연결하고 앱을 실행하세요. 그 다음 <em>Scan</em>을 클릭하면 장치가 자동으로 감지됩니다.
+          install the <strong style={{ color: '#60a5fa' }}>Iriun Webcam</strong> app on your iPhone, connect via Lightning cable and open the app. Then click <em>Scan</em> to auto-detect the device.
         </p>
       )}
 
@@ -404,7 +404,7 @@ function LocalCameraMode() {
   );
 }
 
-// ── Mode C: Browser Camera + TensorFlow.js Red Light Detection ───────────
+// ── Mode C: Browser Camera + TensorFlow.js Traffic Sign Detection ────────
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const DETECTION_INTERVAL = 150;
@@ -449,8 +449,10 @@ function BrowserCameraMode({ onDetection }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const modelRef = useRef(null);
-  const trackingRef = useRef(null);
-  const lastViolationRef = useRef(0);
+  const stopTrackingRef = useRef(null);     // stop sign tracking
+  const redLightTrackingRef = useRef(null); // red light tracking
+  const lastRedViolationRef = useRef(0);
+  const lastStopViolationRef = useRef(0);
   const intervalRef = useRef(null);
   const streamRef = useRef(null);
 
@@ -459,11 +461,17 @@ function BrowserCameraMode({ onDetection }) {
   const [selectedCamera, setSelectedCamera] = useState('');
   const [modelReady, setModelReady] = useState(false);
   const [detecting, setDetecting] = useState(false);
+  const [redLightActive, setRedLightActive] = useState(false); // for warning banner
 
-  const addViolation = useCallback((avgSpeed, framesVisible) => {
+  // ── Red light violation — banner only on actual violation ───────────────
+  const addRedLightViolation = useCallback((avgSpeed, framesVisible) => {
     const now = Date.now();
-    if (now - lastViolationRef.current < COOLDOWN_MS) return;
-    lastViolationRef.current = now;
+    if (now - lastRedViolationRef.current < COOLDOWN_MS) return;
+    lastRedViolationRef.current = now;
+
+    // Show warning banner only when violation is confirmed; auto-hide after 3s
+    setRedLightActive(true);
+    setTimeout(() => setRedLightActive(false), 3000);
 
     if (onDetection) {
       onDetection({
@@ -474,7 +482,22 @@ function BrowserCameraMode({ onDetection }) {
     }
   }, [onDetection]);
 
-  const evaluateTracking = useCallback((track) => {
+  // ── Stop sign violation (logs only on actual violation) ───────────────
+  const addStopSignViolation = useCallback((avgSpeed, framesVisible) => {
+    const now = Date.now();
+    if (now - lastStopViolationRef.current < COOLDOWN_MS) return;
+    lastStopViolationRef.current = now;
+
+    if (onDetection) {
+      onDetection({
+        type: 'critical',
+        message: `🛑 Stop Sign Violation — vehicle passed at ${Math.round(avgSpeed)}px/f avg speed (${framesVisible} frames visible, needed ${MIN_FRAMES_FOR_STOP}+ to count as stopped)`,
+        scoreChange: -10,
+      });
+    }
+  }, [onDetection]);
+
+  const evaluateRedLightTracking = useCallback((track) => {
     if (track.positions.length < 2) return;
     let totalDisplacement = 0;
     for (let i = 1; i < track.positions.length; i++) {
@@ -484,9 +507,23 @@ function BrowserCameraMode({ onDetection }) {
     }
     const avgSpeed = totalDisplacement / (track.positions.length - 1);
     if (avgSpeed > SPEED_THRESHOLD && track.framesVisible < MIN_FRAMES_FOR_STOP) {
-      addViolation(avgSpeed, track.framesVisible);
+      addRedLightViolation(avgSpeed, track.framesVisible);
     }
-  }, [addViolation]);
+  }, [addRedLightViolation]);
+
+  const evaluateStopSignTracking = useCallback((track) => {
+    if (track.positions.length < 2) return;
+    let totalDisplacement = 0;
+    for (let i = 1; i < track.positions.length; i++) {
+      const dx = track.positions[i].x - track.positions[i - 1].x;
+      const dy = track.positions[i].y - track.positions[i - 1].y;
+      totalDisplacement += Math.sqrt(dx * dx + dy * dy);
+    }
+    const avgSpeed = totalDisplacement / (track.positions.length - 1);
+    if (avgSpeed > SPEED_THRESHOLD && track.framesVisible < MIN_FRAMES_FOR_STOP) {
+      addStopSignViolation(avgSpeed, track.framesVisible);
+    }
+  }, [addStopSignViolation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -541,7 +578,8 @@ function BrowserCameraMode({ onDetection }) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
       if (intervalRef.current) clearInterval(intervalRef.current);
-      trackingRef.current = null;
+      stopTrackingRef.current = null;
+      redLightTrackingRef.current = null;
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -576,6 +614,8 @@ function BrowserCameraMode({ onDetection }) {
 
       model.detect(video).then((predictions) => {
         if (cancelled) return;
+
+        // ── Traffic light detection ────────────────────────────────────
         const trafficLight = predictions.find(
           (p) => p.class === 'traffic light' && p.score >= CONFIDENCE_THRESHOLD
         );
@@ -598,31 +638,76 @@ function BrowserCameraMode({ onDetection }) {
           ctx.fillText(label, x, y > 20 ? y - 6 : y + h + 16);
 
           if (lightColor === 'red') {
-            if (!trackingRef.current) {
-              trackingRef.current = { positions: [], framesVisible: 0 };
-              if (onDetection) {
-                onDetection({
-                  type: 'info',
-                  message: `🔴 Red light detected (${Math.round(trafficLight.score * 100)}% confidence)`,
-                  scoreChange: 0,
-                });
-              }
+            if (!redLightTrackingRef.current) {
+              redLightTrackingRef.current = { positions: [], framesVisible: 0 };
             }
-            const track = trackingRef.current;
+            const track = redLightTrackingRef.current;
             track.positions.push({ x: cx, y: cy });
             track.framesVisible++;
           } else {
-            if (trackingRef.current) {
-              evaluateTracking(trackingRef.current);
-              trackingRef.current = null;
+            // green / yellow / unknown — no penalty, no log, no banner
+            if (redLightTrackingRef.current) {
+              evaluateRedLightTracking(redLightTrackingRef.current);
+              redLightTrackingRef.current = null;
             }
           }
         } else {
-          if (trackingRef.current) {
-            evaluateTracking(trackingRef.current);
-            trackingRef.current = null;
+          if (redLightTrackingRef.current) {
+            evaluateRedLightTracking(redLightTrackingRef.current);
+            redLightTrackingRef.current = null;
           }
         }
+
+        // ── Stop sign detection ────────────────────────────────────────
+        const stopSign = predictions.find(
+          (p) => p.class === 'stop sign' && p.score >= CONFIDENCE_THRESHOLD
+        );
+
+        if (stopSign) {
+          const [sx, sy, sw, sh] = stopSign.bbox;
+          const scx = sx + sw / 2;
+          const scy = sy + sh / 2;
+
+          if (!stopTrackingRef.current) {
+            stopTrackingRef.current = { positions: [], framesVisible: 0 };
+            // First-detected info log — commented out (log only on violation)
+            // if (onDetection) {
+            //   onDetection({ type: 'info', message: `🔍 Stop sign detected (${Math.round(stopSign.score * 100)}% confidence)`, scoreChange: 0 });
+            // }
+          }
+          const track = stopTrackingRef.current;
+          track.positions.push({ x: scx, y: scy });
+          track.framesVisible++;
+
+          let currentSpeed = 0;
+          if (track.positions.length >= 2) {
+            const prev = track.positions[track.positions.length - 2];
+            const curr = track.positions[track.positions.length - 1];
+            const dx = curr.x - prev.x;
+            const dy = curr.y - prev.y;
+            currentSpeed = Math.sqrt(dx * dx + dy * dy);
+          }
+
+          // Red box if moving fast past stop, green if slowing/stopped
+          const stopColor = currentSpeed > SPEED_THRESHOLD ? '#ef4444' : '#22c55e';
+          ctx.strokeStyle = stopColor;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(sx, sy, sw, sh);
+          ctx.fillStyle = stopColor;
+          ctx.font = 'bold 14px monospace';
+          const stopLabel = `STOP ${Math.round(stopSign.score * 100)}% | ${Math.round(currentSpeed)}px/f`;
+          ctx.fillText(stopLabel, sx, sy > 20 ? sy - 6 : sy + sh + 16);
+        } else {
+          if (stopTrackingRef.current) {
+            evaluateStopSignTracking(stopTrackingRef.current);
+            stopTrackingRef.current = null;
+          }
+        }
+
+        // ── Other detections (speeding, tailgating, phone use, etc.) ──
+        // Commented out — only red light & stop sign violations are logged
+        // const otherEvents = predictions.filter(p => !['traffic light','stop sign'].includes(p.class));
+        // ... handle other events here if needed in the future
       });
     }
 
@@ -635,8 +720,9 @@ function BrowserCameraMode({ onDetection }) {
         streamRef.current = null;
       }
       setDetecting(false);
+      setRedLightActive(false);
     };
-  }, [selectedCamera, modelReady, evaluateTracking, onDetection]);
+  }, [selectedCamera, modelReady, evaluateRedLightTracking, evaluateStopSignTracking, onDetection]);
 
   return (
     <>
@@ -687,9 +773,39 @@ function BrowserCameraMode({ onDetection }) {
             pointerEvents: 'none',
           }}
         />
+
+        {/* ── Red Light Warning Banner — top-center, pulses while active ── */}
+        {redLightActive && (
+          <div
+            style={{
+              position:      'absolute',
+              top:           14,
+              left:          '50%',
+              transform:     'translateX(-50%)',
+              zIndex:        20,
+              background:    'rgba(220,38,38,0.92)',
+              border:        '2px solid #ef4444',
+              borderRadius:  '8px',
+              padding:       '6px 20px',
+              display:       'flex',
+              alignItems:    'center',
+              gap:           '8px',
+              boxShadow:     '0 0 24px rgba(239,68,68,0.7)',
+              animation:     'pulse 0.9s ease-in-out infinite',
+              whiteSpace:    'nowrap',
+              pointerEvents: 'none',
+            }}
+          >
+            <span style={{ fontSize: '1rem' }}>🔴</span>
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'white', letterSpacing: '0.06em' }}>
+              RED LIGHT DETECTED
+            </span>
+          </div>
+        )}
+
         {!selectedCamera && !detecting && (
           <IdleOverlay
-            hint="Select a browser camera above. TF.js will detect traffic lights in real time."
+            hint="Select a browser camera above. TF.js will detect traffic lights and stop signs in real time."
             icon={<Monitor size={48} style={{ margin: '0 auto 0.75rem', opacity: 0.35 }} />}
           />
         )}
@@ -698,60 +814,15 @@ function BrowserCameraMode({ onDetection }) {
   );
 }
 
-// ── Root component — mode tab switcher ────────────────────────────────────
-
-const MODES = [
-  { id: 'ip',    label: '📡 IP Camera'      },
-  { id: 'local', label: '🔌 Lightning / USB' },
-  { id: 'browser', label: '🎯 Browser Detect' },
-];
+// ── Root component — Browser Detect only ──────────────────────────────────
 
 export default function CameraFeed({ onDetection }) {
-  const [mode, setMode] = useState('ip');
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-
-      {/* Tab bar */}
-      <div
-        className="card"
-        style={{ padding: '0.35rem', display: 'flex', gap: '0.25rem' }}
-      >
-        {MODES.map(({ id, label }) => (
-          <button
-            key={id}
-            id={`camera-mode-${id}`}
-            onClick={() => setMode(id)}
-            style={{
-              flex:         1,
-              padding:      '0.45rem 0.75rem',
-              borderRadius: '0.5rem',
-              border:       'none',
-              cursor:       'pointer',
-              fontWeight:   600,
-              fontSize:     '0.75rem',
-              transition:   'all 0.2s',
-              background:   mode === id
-                ? 'linear-gradient(135deg, #2563eb, #4f46e5)'
-                : 'transparent',
-              color:        mode === id ? 'white' : '#64748b',
-              boxShadow:    mode === id ? '0 0 14px rgba(59,130,246,0.3)' : 'none',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Active mode controls + viewport */}
-      <div
-        className="card"
-        style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
-      >
-        {mode === 'ip' && <IpCameraMode />}
-        {mode === 'local' && <LocalCameraMode />}
-        {mode === 'browser' && <BrowserCameraMode onDetection={onDetection} />}
-      </div>
+    <div
+      className="card"
+      style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+    >
+      <BrowserCameraMode onDetection={onDetection} />
     </div>
   );
 }

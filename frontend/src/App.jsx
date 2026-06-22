@@ -37,21 +37,19 @@ export default function App() {
   const { messages, connected, reconnectCount } = useWebSocket();
 
   // ── Process incoming WS messages ───────────────────────────────────────
+  // WS is kept for future backend model integration (score updates).
+  // eventLogs are populated exclusively by real TF.js detections (handleDetection).
   useEffect(() => {
     if (messages.length === 0) return;
-
-    // The hook always prepends, so messages[0] is the newest
     const latest = messages[0];
-
-    // Only update state if there is a meaningful score change
+    // Only update trust score if backend sends a real scored event
     if (typeof latest.scoreChange === 'number' && latest.scoreChange !== 0) {
       setTrustScore((prev) =>
         Math.min(SCORE_CEILING, Math.max(SCORE_FLOOR, prev + latest.scoreChange))
       );
     }
-
-    // Sync full message array into eventLogs (already newest-first)
-    setEventLogs(messages);
+    // NOTE: intentionally NOT syncing messages → eventLogs here.
+    // All log entries come from handleDetection (TF.js browser pipeline).
   }, [messages]);
 
   // ── Handle detections from browser camera (TF.js) ─────────────────────
@@ -122,10 +120,10 @@ export default function App() {
               className="gradient-text"
               style={{ fontSize: '1.1rem', fontWeight: 800, lineHeight: 1.2 }}
             >
-              DriveSafe AI
+              DashCam
             </h1>
             <p style={{ fontSize: '0.65rem', color: '#475569', letterSpacing: '0.06em' }}>
-              P2P REAL-TIME DRIVING ANALYSIS
+              REAL-TIME DRIVING ANALYSIS
             </p>
           </div>
         </div>
@@ -251,7 +249,7 @@ export default function App() {
         }}
       >
         <p style={{ fontSize: '0.65rem', color: '#334155' }}>
-          © 2026 DriveSafe AI — Powered by YOLOv8 + FastAPI
+          © 2026 DashCam — Powered by TF.js + FastAPI
         </p>
         <p style={{ fontSize: '0.65rem', color: '#334155', fontFamily: 'var(--font-mono)' }}>
           WS: ws://localhost:8000/ws/driving-analysis

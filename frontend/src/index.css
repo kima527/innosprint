@@ -77,6 +77,19 @@ body {
 }
 .score-ring { animation: ring-pulse 3s ease-in-out infinite; }
 
+/* ─── Red-light warning banner pulse ───────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1;    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); }
+  50%       { opacity: 0.82; box-shadow: 0 0 36px rgba(239, 68, 68, 0.9); }
+}
+
+/* ─── Spinner (used by scan / connecting states) ───────────────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+
 /* ─── Scanline effect for camera feed ─────────────────────────────────── */
 .scanlines::after {
   content: '';
