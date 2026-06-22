@@ -404,13 +404,46 @@ function LocalCameraMode() {
   );
 }
 
-// ── Mode C: Browser Camera + TensorFlow.js Stop Sign Detection ───────────
+// ── Mode C: Browser Camera + TensorFlow.js Red Light Detection ───────────
 
 const CONFIDENCE_THRESHOLD = 0.5;
 const DETECTION_INTERVAL = 150;
 const SPEED_THRESHOLD = 15;
 const MIN_FRAMES_FOR_STOP = 8;
 const COOLDOWN_MS = 3000;
+
+function classifyLightColor(video, bbox) {
+  const [x, y, w, h] = bbox;
+  const sampleCanvas = document.createElement('canvas');
+  sampleCanvas.width = w;
+  sampleCanvas.height = h;
+  const sCtx = sampleCanvas.getContext('2d');
+  if (!sCtx) return 'unknown';
+  sCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
+
+  const thirdH = Math.floor(h / 3);
+  const regions = [
+    { name: 'red',    yStart: 0,            yEnd: thirdH },
+    { name: 'yellow', yStart: thirdH,       yEnd: thirdH * 2 },
+    { name: 'green',  yStart: thirdH * 2,   yEnd: h },
+  ];
+
+  let brightest = { name: 'unknown', brightness: 0 };
+  for (const region of regions) {
+    const imgData = sCtx.getImageData(0, region.yStart, w, region.yEnd - region.yStart);
+    const px = imgData.data;
+    let totalBrightness = 0;
+    const pixelCount = px.length / 4;
+    for (let i = 0; i < px.length; i += 4) {
+      totalBrightness += px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+    }
+    const avg = totalBrightness / pixelCount;
+    if (avg > brightest.brightness) {
+      brightest = { name: region.name, brightness: avg };
+    }
+  }
+  return brightest.name;
+}
 
 function BrowserCameraMode({ onDetection }) {
   const videoRef = useRef(null);
@@ -435,7 +468,7 @@ function BrowserCameraMode({ onDetection }) {
     if (onDetection) {
       onDetection({
         type: 'critical',
-        message: `🛑 Stop Sign Violation — vehicle passed at ${Math.round(avgSpeed)}px/f avg speed (${framesVisible} frames visible, needed ${MIN_FRAMES_FOR_STOP}+ to count as stopped)`,
+        message: `🚨 Red Light Violation — vehicle passed at ${Math.round(avgSpeed)}px/f avg speed (${framesVisible} frames visible, needed ${MIN_FRAMES_FOR_STOP}+ to count as stopped)`,
         scoreChange: -10,
       });
     }
@@ -543,46 +576,46 @@ function BrowserCameraMode({ onDetection }) {
 
       model.detect(video).then((predictions) => {
         if (cancelled) return;
-        const stopSign = predictions.find(
-          (p) => p.class === 'stop sign' && p.score >= CONFIDENCE_THRESHOLD
+        const trafficLight = predictions.find(
+          (p) => p.class === 'traffic light' && p.score >= CONFIDENCE_THRESHOLD
         );
 
-        if (stopSign) {
-          const [x, y, w, h] = stopSign.bbox;
+        if (trafficLight) {
+          const [x, y, w, h] = trafficLight.bbox;
+          const lightColor = classifyLightColor(video, trafficLight.bbox);
           const cx = x + w / 2;
           const cy = y + h / 2;
 
-          if (!trackingRef.current) {
-            trackingRef.current = { positions: [], framesVisible: 0 };
-          }
-          const track = trackingRef.current;
-          track.positions.push({ x: cx, y: cy });
-          track.framesVisible++;
+          const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e', unknown: '#64748b' };
+          const boxColor = colorMap[lightColor] || '#64748b';
 
-          let currentSpeed = 0;
-          if (track.positions.length >= 2) {
-            const prev = track.positions[track.positions.length - 2];
-            const curr = track.positions[track.positions.length - 1];
-            const dx = curr.x - prev.x;
-            const dy = curr.y - prev.y;
-            currentSpeed = Math.sqrt(dx * dx + dy * dy);
-          }
-
-          const color = currentSpeed > SPEED_THRESHOLD ? '#ef4444' : '#22c55e';
-          ctx.strokeStyle = color;
+          ctx.strokeStyle = boxColor;
           ctx.lineWidth = 3;
           ctx.strokeRect(x, y, w, h);
-          ctx.fillStyle = color;
+          ctx.fillStyle = boxColor;
           ctx.font = 'bold 14px monospace';
-          const label = `stop sign ${Math.round(stopSign.score * 100)}% | ${Math.round(currentSpeed)}px/f`;
+          const label = `${lightColor.toUpperCase()} ${Math.round(trafficLight.score * 100)}%`;
           ctx.fillText(label, x, y > 20 ? y - 6 : y + h + 16);
 
-          if (onDetection && track.framesVisible === 1) {
-            onDetection({
-              type: 'info',
-              message: `🔍 Stop sign detected (${Math.round(stopSign.score * 100)}% confidence)`,
-              scoreChange: 0,
-            });
+          if (lightColor === 'red') {
+            if (!trackingRef.current) {
+              trackingRef.current = { positions: [], framesVisible: 0 };
+              if (onDetection) {
+                onDetection({
+                  type: 'info',
+                  message: `🔴 Red light detected (${Math.round(trafficLight.score * 100)}% confidence)`,
+                  scoreChange: 0,
+                });
+              }
+            }
+            const track = trackingRef.current;
+            track.positions.push({ x: cx, y: cy });
+            track.framesVisible++;
+          } else {
+            if (trackingRef.current) {
+              evaluateTracking(trackingRef.current);
+              trackingRef.current = null;
+            }
           }
         } else {
           if (trackingRef.current) {
@@ -656,7 +689,7 @@ function BrowserCameraMode({ onDetection }) {
         />
         {!selectedCamera && !detecting && (
           <IdleOverlay
-            hint="Select a browser camera above. TF.js will detect stop signs in real time."
+            hint="Select a browser camera above. TF.js will detect traffic lights in real time."
             icon={<Monitor size={48} style={{ margin: '0 auto 0.75rem', opacity: 0.35 }} />}
           />
         )}
