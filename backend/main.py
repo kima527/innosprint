@@ -299,7 +299,7 @@ async def list_cameras(max_index: int = 5) -> dict:
     Probe device indices 0..max_index and report which ones OpenCV can open.
 
     Use this endpoint to identify which index your Lightning-connected
-    iPhone appears on (typically 1 or 2 after EpocCam/Camo driver install).
+    iPhone appears on (typically 1 or 2 after Iriun Webcam is installed and running).
 
     Example: GET http://localhost:8000/api/cameras
     """
@@ -339,14 +339,14 @@ async def camera_stream_ws(websocket: WebSocket, device: int = 0):
     if not cap.isOpened():
         error_msg = (
             f"Cannot open camera device {device}. "
-            "Check that EpocCam/Camo is running and the iPhone is connected via Lightning."
+            "Check that Iriun Webcam is running on your iPhone and connected via Lightning."
         )
         logger.error(error_msg)
         await websocket.send_text(json.dumps({"kind": "error", "message": error_msg}))
         await websocket.close()
         return
 
-    # Set resolution; EpocCam/Camo honours these requests
+    # Set resolution; Iriun Webcam honours these requests
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  _CAMERA_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, _CAMERA_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS,          _TARGET_FPS)
