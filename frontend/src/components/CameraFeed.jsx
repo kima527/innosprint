@@ -412,7 +412,8 @@ const SPEED_THRESHOLD = 15;
 const MIN_FRAMES_FOR_STOP = 8;
 const COOLDOWN_MS = 3000;
 const STOP_SIGN_HOLD_MS = 3000;
-const STOP_SPEED_THRESHOLD = 3;
+const STOP_SPEED_THRESHOLD = 8;
+const STOP_SMOOTH_WINDOW = 4;
 
 function classifyLightColor(video, bbox) {
   const [x, y, w, h] = bbox;
@@ -707,7 +708,19 @@ function BrowserCameraMode({ onDetection }) {
           }
 
           if (!track.stopFulfilled) {
-            if (currentSpeed <= STOP_SPEED_THRESHOLD) {
+            let smoothedSpeed = currentSpeed;
+            const pos = track.positions;
+            if (pos.length >= STOP_SMOOTH_WINDOW + 1) {
+              let total = 0;
+              for (let j = pos.length - STOP_SMOOTH_WINDOW; j < pos.length; j++) {
+                const ddx = pos[j].x - pos[j - 1].x;
+                const ddy = pos[j].y - pos[j - 1].y;
+                total += Math.sqrt(ddx * ddx + ddy * ddy);
+              }
+              smoothedSpeed = total / STOP_SMOOTH_WINDOW;
+            }
+
+            if (smoothedSpeed <= STOP_SPEED_THRESHOLD) {
               if (track.stopStartedAt === null) track.stopStartedAt = now;
               if (now - track.stopStartedAt >= STOP_SIGN_HOLD_MS) {
                 track.stopFulfilled = true;
