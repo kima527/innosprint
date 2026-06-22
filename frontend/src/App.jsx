@@ -14,7 +14,7 @@
 //   └───────────────────────┴────────────────────────────────┘
 // ============================================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { ShieldCheck, Activity, RotateCcw } from 'lucide-react';
 
 import { useWebSocket }      from './hooks/useWebSocket';
@@ -53,6 +53,22 @@ export default function App() {
     // Sync full message array into eventLogs (already newest-first)
     setEventLogs(messages);
   }, [messages]);
+
+  // ── Handle detections from browser camera (TF.js) ─────────────────────
+  const handleDetection = useCallback((event) => {
+    const enriched = {
+      ...event,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (typeof event.scoreChange === 'number' && event.scoreChange !== 0) {
+      setTrustScore((prev) =>
+        Math.min(SCORE_CEILING, Math.max(SCORE_FLOOR, prev + event.scoreChange))
+      );
+    }
+
+    setEventLogs((prev) => [enriched, ...prev].slice(0, 100));
+  }, []);
 
   // ── Reset handler ──────────────────────────────────────────────────────
   const handleReset = () => {
@@ -160,7 +176,7 @@ export default function App() {
               Camera Feed
             </h2>
           </div>
-          <CameraFeed />
+          <CameraFeed onDetection={handleDetection} />
         </section>
 
         {/* ── RIGHT COLUMN — Dashboard ──────────────────────────────── */}

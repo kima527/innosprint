@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Wifi, WifiOff, RefreshCcw, Usb, ChevronDown } from 'lucide-react';
+import { Camera, Wifi, WifiOff, RefreshCcw, Usb, ChevronDown, Monitor } from 'lucide-react';
 
 const WS_CAMERA_BASE = 'ws://localhost:8000/ws/camera-stream';
 const API_CAMERAS    = 'http://localhost:8000/api/cameras';
@@ -110,7 +110,7 @@ function Viewport({ live, mode, children }) {
           letterSpacing:'0.06em',
         }}
       >
-        {mode === 'ip' ? '📡 IP STREAM' : '🔌 USB / LIGHTNING'}
+        {mode === 'ip' ? '📡 IP STREAM' : mode === 'local' ? '🔌 USB / LIGHTNING' : '🎯 TF.js DETECT'}
       </div>
 
       {children}
@@ -404,14 +404,276 @@ function LocalCameraMode() {
   );
 }
 
+// ── Mode C: Browser Camera + TensorFlow.js Stop Sign Detection ───────────
+
+const CONFIDENCE_THRESHOLD = 0.5;
+const DETECTION_INTERVAL = 150;
+const SPEED_THRESHOLD = 15;
+const MIN_FRAMES_FOR_STOP = 8;
+const COOLDOWN_MS = 3000;
+
+function BrowserCameraMode({ onDetection }) {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const modelRef = useRef(null);
+  const trackingRef = useRef(null);
+  const lastViolationRef = useRef(0);
+  const intervalRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const [status, setStatus] = useState('loading model...');
+  const [cameras, setCameras] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState('');
+  const [modelReady, setModelReady] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+
+  const addViolation = useCallback((avgSpeed, framesVisible) => {
+    const now = Date.now();
+    if (now - lastViolationRef.current < COOLDOWN_MS) return;
+    lastViolationRef.current = now;
+
+    if (onDetection) {
+      onDetection({
+        type: 'critical',
+        message: `🛑 Stop Sign Violation — vehicle passed at ${Math.round(avgSpeed)}px/f avg speed (${framesVisible} frames visible, needed ${MIN_FRAMES_FOR_STOP}+ to count as stopped)`,
+        scoreChange: -10,
+      });
+    }
+  }, [onDetection]);
+
+  const evaluateTracking = useCallback((track) => {
+    if (track.positions.length < 2) return;
+    let totalDisplacement = 0;
+    for (let i = 1; i < track.positions.length; i++) {
+      const dx = track.positions[i].x - track.positions[i - 1].x;
+      const dy = track.positions[i].y - track.positions[i - 1].y;
+      totalDisplacement += Math.sqrt(dx * dx + dy * dy);
+    }
+    const avgSpeed = totalDisplacement / (track.positions.length - 1);
+    if (avgSpeed > SPEED_THRESHOLD && track.framesVisible < MIN_FRAMES_FOR_STOP) {
+      addViolation(avgSpeed, track.framesVisible);
+    }
+  }, [addViolation]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModel() {
+      try {
+        const tf = await import('@tensorflow/tfjs');
+        await tf.ready();
+        const cocoSsd = await import('@tensorflow-models/coco-ssd');
+        const model = await cocoSsd.load();
+        if (cancelled) return;
+        modelRef.current = model;
+        setModelReady(true);
+        setStatus('model ready — select a camera');
+      } catch {
+        setStatus('failed to load model');
+      }
+    }
+    loadModel();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    async function enumerateCameras() {
+      try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        tempStream.getTracks().forEach((t) => t.stop());
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices
+          .filter((d) => d.kind === 'videoinput')
+          .map((d) => ({ deviceId: d.deviceId, label: d.label || `Camera ${d.deviceId.slice(0, 8)}` }));
+        setCameras(videoDevices);
+        const iphone = videoDevices.find((d) => d.label.toLowerCase().includes('iphone'));
+        if (iphone && !selectedCamera) {
+          setSelectedCamera(iphone.deviceId);
+        }
+      } catch {
+        setStatus('camera permission denied');
+      }
+    }
+    enumerateCameras();
+    const handler = () => enumerateCameras();
+    navigator.mediaDevices.addEventListener('devicechange', handler);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedCamera || !modelReady) return;
+    let cancelled = false;
+
+    async function startCamera() {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      trackingRef.current = null;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: selectedCamera }, width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        setStatus('detecting');
+        setDetecting(true);
+        intervalRef.current = setInterval(detect, DETECTION_INTERVAL);
+      } catch {
+        setStatus('failed to start camera');
+      }
+    }
+
+    function detect() {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const model = modelRef.current;
+      if (!video || !canvas || !model || video.readyState < 2) return;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      model.detect(video).then((predictions) => {
+        if (cancelled) return;
+        const stopSign = predictions.find(
+          (p) => p.class === 'stop sign' && p.score >= CONFIDENCE_THRESHOLD
+        );
+
+        if (stopSign) {
+          const [x, y, w, h] = stopSign.bbox;
+          const cx = x + w / 2;
+          const cy = y + h / 2;
+
+          if (!trackingRef.current) {
+            trackingRef.current = { positions: [], framesVisible: 0 };
+          }
+          const track = trackingRef.current;
+          track.positions.push({ x: cx, y: cy });
+          track.framesVisible++;
+
+          let currentSpeed = 0;
+          if (track.positions.length >= 2) {
+            const prev = track.positions[track.positions.length - 2];
+            const curr = track.positions[track.positions.length - 1];
+            const dx = curr.x - prev.x;
+            const dy = curr.y - prev.y;
+            currentSpeed = Math.sqrt(dx * dx + dy * dy);
+          }
+
+          const color = currentSpeed > SPEED_THRESHOLD ? '#ef4444' : '#22c55e';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, w, h);
+          ctx.fillStyle = color;
+          ctx.font = 'bold 14px monospace';
+          const label = `stop sign ${Math.round(stopSign.score * 100)}% | ${Math.round(currentSpeed)}px/f`;
+          ctx.fillText(label, x, y > 20 ? y - 6 : y + h + 16);
+
+          if (onDetection && track.framesVisible === 1) {
+            onDetection({
+              type: 'info',
+              message: `🔍 Stop sign detected (${Math.round(stopSign.score * 100)}% confidence)`,
+              scoreChange: 0,
+            });
+          }
+        } else {
+          if (trackingRef.current) {
+            evaluateTracking(trackingRef.current);
+            trackingRef.current = null;
+          }
+        }
+      });
+    }
+
+    startCamera();
+    return () => {
+      cancelled = true;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      setDetecting(false);
+    };
+  }, [selectedCamera, modelReady, evaluateTracking, onDetection]);
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+          <select
+            value={selectedCamera}
+            onChange={(e) => setSelectedCamera(e.target.value)}
+            style={{ ...inputStyle, paddingRight: '2rem', appearance: 'none', cursor: 'pointer' }}
+          >
+            <option value="">select camera...</option>
+            {cameras.map((c) => (
+              <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
+            ))}
+          </select>
+          <ChevronDown
+            size={14}
+            style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }}
+          />
+        </div>
+        <span
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            padding: '4px 12px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 600,
+            background: modelReady ? 'rgba(34,197,94,0.12)' : 'rgba(234,179,8,0.12)',
+            border: `1px solid ${modelReady ? 'rgba(34,197,94,0.3)' : 'rgba(234,179,8,0.3)'}`,
+            color: modelReady ? '#86efac' : '#fde68a',
+          }}
+        >
+          {status}
+        </span>
+      </div>
+
+      <Viewport live={detecting} mode="browser">
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          style={{
+            width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+            visibility: detecting ? 'visible' : 'hidden',
+          }}
+        />
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+            pointerEvents: 'none',
+          }}
+        />
+        {!selectedCamera && !detecting && (
+          <IdleOverlay
+            hint="Select a browser camera above. TF.js will detect stop signs in real time."
+            icon={<Monitor size={48} style={{ margin: '0 auto 0.75rem', opacity: 0.35 }} />}
+          />
+        )}
+      </Viewport>
+    </>
+  );
+}
+
 // ── Root component — mode tab switcher ────────────────────────────────────
 
 const MODES = [
   { id: 'ip',    label: '📡 IP Camera'      },
   { id: 'local', label: '🔌 Lightning / USB' },
+  { id: 'browser', label: '🎯 Browser Detect' },
 ];
 
-export default function CameraFeed() {
+export default function CameraFeed({ onDetection }) {
   const [mode, setMode] = useState('ip');
 
   return (
@@ -453,7 +715,9 @@ export default function CameraFeed() {
         className="card"
         style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
       >
-        {mode === 'ip' ? <IpCameraMode /> : <LocalCameraMode />}
+        {mode === 'ip' && <IpCameraMode />}
+        {mode === 'local' && <LocalCameraMode />}
+        {mode === 'browser' && <BrowserCameraMode onDetection={onDetection} />}
       </div>
     </div>
   );
