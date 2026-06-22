@@ -1,138 +1,92 @@
 @import "tailwindcss";
 
-/* ─── Design tokens ────────────────────────────────────────────────────── */
 :root {
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  /* Brand palette */
-  --clr-bg:         #090d13;
-  --clr-surface:    #0f1724;
-  --clr-surface-2:  #162035;
-  --clr-border:     rgba(99, 179, 237, 0.12);
+  --clr-bg:         #0a0d12;
+  --clr-surface:    #12161e;
+  --clr-surface-2:  #1a1f2b;
+  --clr-border:     rgba(255, 255, 255, 0.06);
   --clr-accent:     #3b82f6;
-  --clr-accent-glow:rgba(59, 130, 246, 0.35);
 
-  /* Score colours */
   --clr-safe:       #22c55e;
   --clr-warn:       #eab308;
   --clr-danger:     #ef4444;
-
-  /* Status */
   --clr-info:       #06b6d4;
 }
 
-/* ─── Base reset ───────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html { scroll-behavior: smooth; }
 
 body {
   font-family: var(--font-sans);
   background-color: var(--clr-bg);
-  color: #e2e8f0;
+  color: #d1d5db;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ─── Scrollbar ────────────────────────────────────────────────────────── */
-::-webkit-scrollbar        { width: 5px; }
-::-webkit-scrollbar-track  { background: var(--clr-surface); }
-::-webkit-scrollbar-thumb  { background: var(--clr-border); border-radius: 3px; }
+::-webkit-scrollbar        { width: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 2px; }
 
-/* ─── Glass card ───────────────────────────────────────────────────────── */
 .card {
   background: var(--clr-surface);
   border: 1px solid var(--clr-border);
-  border-radius: 1rem;
-  backdrop-filter: blur(12px);
+  border-radius: 0.75rem;
 }
 
-/* ─── Gradient text ────────────────────────────────────────────────────── */
-.gradient-text {
-  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #38bdf8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+.animate-slide-in { animation: slide-in 0.25s ease forwards; }
 
-/* ─── Pulse glow animation ─────────────────────────────────────────────── */
 @keyframes pulse-glow {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
 }
 .animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
 
-/* ─── Slide-in for new log entries ─────────────────────────────────────── */
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.animate-slide-in { animation: slide-in 0.3s ease forwards; }
-
-/* ─── Score ring glow ──────────────────────────────────────────────────── */
 @keyframes ring-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--score-glow, rgba(34, 197, 94, 0.4)); }
-  50%       { box-shadow: 0 0 0 12px transparent; }
+  0%, 100% { box-shadow: 0 0 0 0 var(--score-glow, rgba(34, 197, 94, 0.3)); }
+  50%       { box-shadow: 0 0 0 8px transparent; }
 }
 .score-ring { animation: ring-pulse 3s ease-in-out infinite; }
 
-/* ─── Red-light warning banner pulse ───────────────────────────────────── */
 @keyframes pulse {
-  0%, 100% { opacity: 1;    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); }
-  50%       { opacity: 0.82; box-shadow: 0 0 36px rgba(239, 68, 68, 0.9); }
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.8; }
 }
 
-/* ─── Spinner (used by scan / connecting states) ───────────────────────── */
 @keyframes spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 
-
-/* ─── Scanline effect for camera feed ─────────────────────────────────── */
-.scanlines::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.08) 2px,
-    rgba(0, 0, 0, 0.08) 4px
-  );
-  pointer-events: none;
-  border-radius: inherit;
-}
-
-/* ─── Button base ──────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.25rem;
-  border-radius: 0.6rem;
-  font-weight: 600;
-  font-size: 0.875rem;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  font-size: 0.8rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   border: none;
   outline: none;
 }
 .btn-primary {
-  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  background: var(--clr-accent);
   color: white;
-  box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
 }
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0 24px rgba(59, 130, 246, 0.5);
+  background: #2563eb;
 }
-.btn-primary:active { transform: translateY(0); }
 
 .btn-danger {
-  background: linear-gradient(135deg, #991b1b, #b91c1c);
+  background: #b91c1c;
   color: white;
 }
-.btn-danger:hover { background: linear-gradient(135deg, #b91c1c, #dc2626); }
+.btn-danger:hover { background: #dc2626; }

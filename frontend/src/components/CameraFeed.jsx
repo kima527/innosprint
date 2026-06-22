@@ -38,10 +38,10 @@ const inputStyle = {
 
 // ── Shared sub-components ──────────────────────────────────────────────────
 
-function Viewport({ live, mode, children }) {
+function Viewport({ live, children }) {
   return (
     <div
-      className="card scanlines"
+      className="card"
       style={{
         position:       'relative',
         aspectRatio:    '16 / 9',
@@ -49,69 +49,32 @@ function Viewport({ live, mode, children }) {
         display:        'flex',
         alignItems:     'center',
         justifyContent: 'center',
+        background:     '#0a0d12',
       }}
     >
-      {/* Corner bracket decorations */}
-      {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((pos) => {
-        const [v, h] = pos.split('-');
-        return (
-          <div
-            key={pos}
-            style={{
-              position:    'absolute',
-              [v]: 12, [h]: 12,
-              width: 20, height: 20,
-              borderTop:    v === 'top'    ? '2px solid rgba(59,130,246,0.6)' : 'none',
-              borderBottom: v === 'bottom' ? '2px solid rgba(59,130,246,0.6)' : 'none',
-              borderLeft:   h === 'left'   ? '2px solid rgba(59,130,246,0.6)' : 'none',
-              borderRight:  h === 'right'  ? '2px solid rgba(59,130,246,0.6)' : 'none',
-              zIndex: 10,
-            }}
-          />
-        );
-      })}
-
-      {/* LIVE badge */}
       {live && (
         <div
           style={{
             position:    'absolute',
-            top: 14, left: 14,
+            top: 10, left: 10,
             display:     'flex',
             alignItems:  'center',
-            gap:         5,
+            gap:         4,
             zIndex:      10,
             background:  'rgba(0,0,0,0.5)',
-            borderRadius: 4,
-            padding:     '3px 8px',
+            borderRadius: 3,
+            padding:     '2px 6px',
           }}
         >
           <span
             className="animate-pulse-glow"
-            style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'block' }}
+            style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'block' }}
           />
-          <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#f87171', letterSpacing: '0.1em' }}>
+          <span style={{ fontSize: '0.6rem', fontWeight: 600, color: '#f87171' }}>
             LIVE
           </span>
         </div>
       )}
-
-      {/* Source badge */}
-      <div
-        style={{
-          position:     'absolute',
-          bottom: 12, right: 12,
-          zIndex:       10,
-          background:   'rgba(0,0,0,0.45)',
-          borderRadius: 4,
-          padding:      '2px 7px',
-          fontSize:     '0.6rem',
-          color:        '#475569',
-          letterSpacing:'0.06em',
-        }}
-      >
-        {mode === 'ip' ? '📡 IP STREAM' : mode === 'local' ? '🔌 USB / LIGHTNING' : '🎯 TF.js DETECT'}
-      </div>
 
       {children}
     </div>
@@ -193,7 +156,7 @@ function IpCameraMode() {
       </div>
 
       {/* Viewport */}
-      <Viewport live={streamUrl && !imgError} mode="ip">
+      <Viewport live={streamUrl && !imgError}>
         {streamUrl && !imgError && (
           <img
             id="camera-stream-img"
@@ -362,7 +325,7 @@ function LocalCameraMode() {
       )}
 
       {/* Viewport */}
-      <Viewport live={streaming && !!frameData} mode="local">
+      <Viewport live={streaming && !!frameData}>
         {/* Live frame rendered as data URI — backend pushes base64 JPEG via WS */}
         {streaming && frameData && (
           <img
@@ -480,7 +443,8 @@ function BrowserCameraMode({ onDetection }) {
   const [selectedCamera, setSelectedCamera] = useState('');
   const [modelReady, setModelReady] = useState(false);
   const [detecting, setDetecting] = useState(false);
-  const [redLightActive, setRedLightActive] = useState(false); // for warning banner
+  const [redLightActive, setRedLightActive] = useState(false);
+  const [stopViolationActive, setStopViolationActive] = useState(false);
 
   // ── Red light violation — banner only on actual violation ───────────────
   const addRedLightViolation = useCallback((avgSpeed, framesVisible) => {
@@ -501,11 +465,13 @@ function BrowserCameraMode({ onDetection }) {
     }
   }, [onDetection]);
 
-  // ── Stop sign violation (logs only on actual violation) ───────────────
   const addStopSignViolation = useCallback((avgSpeed, framesVisible) => {
     const now = Date.now();
     if (now - lastStopViolationRef.current < COOLDOWN_MS) return;
     lastStopViolationRef.current = now;
+
+    setStopViolationActive(true);
+    setTimeout(() => setStopViolationActive(false), 3000);
 
     if (onDetection) {
       onDetection({
@@ -764,6 +730,7 @@ function BrowserCameraMode({ onDetection }) {
       }
       setDetecting(false);
       setRedLightActive(false);
+      setStopViolationActive(false);
     };
   }, [selectedCamera, modelReady, evaluateRedLightTracking, evaluateStopSignTracking, onDetection]);
 
@@ -799,7 +766,7 @@ function BrowserCameraMode({ onDetection }) {
         </span>
       </div>
 
-      <Viewport live={detecting} mode="browser">
+      <Viewport live={detecting}>
         <video
           ref={videoRef}
           playsInline
@@ -817,8 +784,8 @@ function BrowserCameraMode({ onDetection }) {
           }}
         />
 
-        {/* ── Red Light Warning Banner — top-center, pulses while active ── */}
-        {redLightActive && (
+        {/* ── Violation Banners — top-center, pulse while active ── */}
+        {(redLightActive || stopViolationActive) && (
           <div
             style={{
               position:      'absolute',
@@ -827,21 +794,20 @@ function BrowserCameraMode({ onDetection }) {
               transform:     'translateX(-50%)',
               zIndex:        20,
               background:    'rgba(220,38,38,0.92)',
-              border:        '2px solid #ef4444',
-              borderRadius:  '8px',
-              padding:       '6px 20px',
+              border:        '1px solid rgba(255,255,255,0.2)',
+              borderRadius:  '6px',
+              padding:       '6px 16px',
               display:       'flex',
               alignItems:    'center',
-              gap:           '8px',
-              boxShadow:     '0 0 24px rgba(239,68,68,0.7)',
+              gap:           '6px',
+              boxShadow:     '0 4px 16px rgba(0,0,0,0.4)',
               animation:     'pulse 0.9s ease-in-out infinite',
               whiteSpace:    'nowrap',
               pointerEvents: 'none',
             }}
           >
-            <span style={{ fontSize: '1rem' }}>🔴</span>
-            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'white', letterSpacing: '0.06em' }}>
-              RED LIGHT DETECTED
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'white', letterSpacing: '0.04em' }}>
+              {redLightActive ? 'RED LIGHT VIOLATION' : 'STOP SIGN VIOLATION'}
             </span>
           </div>
         )}

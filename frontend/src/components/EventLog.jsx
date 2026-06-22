@@ -1,40 +1,33 @@
-// ============================================================================
-//  EventLog.jsx — Scrollable list of AI-detected driving events
-// ============================================================================
-
 import { AlertTriangle, XOctagon, Info } from 'lucide-react';
 import { useRef, useEffect } from 'react';
 
-/**
- * Individual log row.
- */
 function EventRow({ event, isNew }) {
   const typeConfig = {
     critical: {
       Icon:       XOctagon,
       iconColour: '#ef4444',
-      bg:         'rgba(239,68,68,0.07)',
-      border:     'rgba(239,68,68,0.25)',
-      badge:      'CRITICAL',
-      badgeBg:    'rgba(239,68,68,0.18)',
+      bg:         'rgba(239,68,68,0.05)',
+      border:     'rgba(239,68,68,0.15)',
+      badge:      'VIOLATION',
+      badgeBg:    'rgba(239,68,68,0.12)',
       badgeText:  '#fca5a5',
     },
     warning: {
       Icon:       AlertTriangle,
       iconColour: '#eab308',
-      bg:         'rgba(234,179,8,0.06)',
-      border:     'rgba(234,179,8,0.22)',
+      bg:         'rgba(234,179,8,0.04)',
+      border:     'rgba(234,179,8,0.12)',
       badge:      'WARNING',
-      badgeBg:    'rgba(234,179,8,0.18)',
+      badgeBg:    'rgba(234,179,8,0.12)',
       badgeText:  '#fde68a',
     },
     info: {
       Icon:       Info,
       iconColour: '#06b6d4',
-      bg:         'rgba(6,182,212,0.06)',
-      border:     'rgba(6,182,212,0.2)',
+      bg:         'rgba(6,182,212,0.04)',
+      border:     'rgba(6,182,212,0.12)',
       badge:      'INFO',
-      badgeBg:    'rgba(6,182,212,0.15)',
+      badgeBg:    'rgba(6,182,212,0.1)',
       badgeText:  '#67e8f9',
     },
   };
@@ -49,47 +42,41 @@ function EventRow({ event, isNew }) {
       style={{
         display:       'flex',
         alignItems:    'flex-start',
-        gap:           '0.75rem',
-        padding:       '0.75rem 1rem',
+        gap:           '0.6rem',
+        padding:       '0.6rem 0.75rem',
         background:    cfg.bg,
         border:        `1px solid ${cfg.border}`,
-        borderRadius:  '0.6rem',
-        marginBottom:  '0.5rem',
-        transition:    'background 0.2s ease',
+        borderRadius:  '0.5rem',
+        marginBottom:  '0.4rem',
       }}
     >
-      {/* Icon */}
-      <Icon size={18} color={cfg.iconColour} style={{ flexShrink: 0, marginTop: 2 }} />
+      <Icon size={15} color={cfg.iconColour} style={{ flexShrink: 0, marginTop: 2 }} />
 
-      {/* Body */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
-          {/* Badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem', flexWrap: 'wrap' }}>
           <span
             style={{
-              fontSize:       '0.6rem',
-              fontWeight:     700,
-              letterSpacing:  '0.08em',
-              padding:        '1px 6px',
-              borderRadius:   '4px',
+              fontSize:       '0.55rem',
+              fontWeight:     600,
+              letterSpacing:  '0.06em',
+              padding:        '1px 5px',
+              borderRadius:   '3px',
               background:     cfg.badgeBg,
               color:          cfg.badgeText,
             }}
           >
             {cfg.badge}
           </span>
-          {/* Score change */}
           {event.scoreChange !== 0 && (
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#f87171' }}>
-              {event.scoreChange > 0 ? '+' : ''}{event.scoreChange} pts
+            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#f87171' }}>
+              {event.scoreChange > 0 ? '+' : ''}{event.scoreChange}
             </span>
           )}
-          {/* Time */}
-          <span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
+          <span style={{ fontSize: '0.65rem', color: '#64748b', marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
             {time}
           </span>
         </div>
-        <p style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.5, wordBreak: 'break-word' }}>
+        <p style={{ fontSize: '0.75rem', color: '#9ca3af', lineHeight: 1.4, wordBreak: 'break-word' }}>
           {event.message}
         </p>
       </div>
@@ -97,29 +84,19 @@ function EventRow({ event, isNew }) {
   );
 }
 
-/**
- * Container with auto-scroll to top (newest events appear first).
- */
 export default function EventLog({ events }) {
   const topRef = useRef(null);
 
-  // Scroll to top whenever a new event arrives
   useEffect(() => {
     topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [events.length]);
 
   return (
-    <div
-      style={{
-        overflowY:    'auto',
-        maxHeight:    '420px',
-        paddingRight: '4px',
-      }}
-    >
+    <div style={{ overflowY: 'auto', maxHeight: '420px', paddingRight: '2px' }}>
       <div ref={topRef} />
       {events.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '3rem 0', color: '#475569' }}>
-          <p style={{ fontSize: '0.85rem' }}>Awaiting AI detections…</p>
+        <div style={{ textAlign: 'center', padding: '2.5rem 0', color: '#475569' }}>
+          <p style={{ fontSize: '0.8rem' }}>No detections yet</p>
         </div>
       ) : (
         events.map((ev, idx) => (
