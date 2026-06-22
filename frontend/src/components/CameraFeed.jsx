@@ -411,7 +411,7 @@ const DETECTION_INTERVAL = 150;
 const SPEED_THRESHOLD = 15;
 const MIN_FRAMES_FOR_STOP = 8;
 const COOLDOWN_MS = 3000;
-const STOP_SIGN_HOLD_MS = 2000;
+const STOP_SIGN_HOLD_MS = 3000;
 const STOP_SPEED_THRESHOLD = 3;
 
 function classifyLightColor(video, bbox) {
@@ -530,6 +530,7 @@ function BrowserCameraMode({ onDetection }) {
   }, [addRedLightViolation]);
 
   const evaluateStopSignTracking = useCallback((track) => {
+    if (track.stopFulfilled) return;
     if (track.positions.length < 2) return;
     let totalDisplacement = 0;
     for (let i = 1; i < track.positions.length; i++) {
@@ -538,32 +539,7 @@ function BrowserCameraMode({ onDetection }) {
       totalDisplacement += Math.sqrt(dx * dx + dy * dy);
     }
     const avgSpeed = totalDisplacement / (track.positions.length - 1);
-
-    let stoppedDuration = 0;
-    if (track.timestamps.length >= 2) {
-      let stopStart = null;
-      for (let i = 1; i < track.positions.length; i++) {
-        const dx = track.positions[i].x - track.positions[i - 1].x;
-        const dy = track.positions[i].y - track.positions[i - 1].y;
-        const speed = Math.sqrt(dx * dx + dy * dy);
-        if (speed <= STOP_SPEED_THRESHOLD) {
-          if (stopStart === null) stopStart = track.timestamps[i - 1];
-        } else {
-          if (stopStart !== null) {
-            stoppedDuration = Math.max(stoppedDuration, track.timestamps[i - 1] - stopStart);
-            stopStart = null;
-          }
-        }
-      }
-      if (stopStart !== null) {
-        stoppedDuration = Math.max(stoppedDuration, track.timestamps[track.timestamps.length - 1] - stopStart);
-      }
-    }
-
-    const didStop = stoppedDuration >= STOP_SIGN_HOLD_MS;
-    if (!didStop) {
-      addStopSignViolation(avgSpeed, track.framesVisible);
-    }
+    addStopSignViolation(avgSpeed, track.framesVisible);
   }, [addStopSignViolation]);
 
   useEffect(() => {
@@ -708,13 +684,17 @@ function BrowserCameraMode({ onDetection }) {
           const [sx, sy, sw, sh] = stopSign.bbox;
           const scx = sx + sw / 2;
           const scy = sy + sh / 2;
+          const now = Date.now();
 
           if (!stopTrackingRef.current) {
-            stopTrackingRef.current = { positions: [], timestamps: [], framesVisible: 0 };
+            stopTrackingRef.current = {
+              positions: [], timestamps: [], framesVisible: 0,
+              stopStartedAt: null, stopFulfilled: false,
+            };
           }
           const track = stopTrackingRef.current;
           track.positions.push({ x: scx, y: scy });
-          track.timestamps.push(Date.now());
+          track.timestamps.push(now);
           track.framesVisible++;
 
           let currentSpeed = 0;
@@ -726,14 +706,26 @@ function BrowserCameraMode({ onDetection }) {
             currentSpeed = Math.sqrt(dx * dx + dy * dy);
           }
 
-          // Red box if moving fast past stop, green if slowing/stopped
-          const stopColor = currentSpeed > SPEED_THRESHOLD ? '#ef4444' : '#22c55e';
+          if (!track.stopFulfilled) {
+            if (currentSpeed <= STOP_SPEED_THRESHOLD) {
+              if (track.stopStartedAt === null) track.stopStartedAt = now;
+              if (now - track.stopStartedAt >= STOP_SIGN_HOLD_MS) {
+                track.stopFulfilled = true;
+              }
+            } else {
+              track.stopStartedAt = null;
+            }
+          }
+
+          const stopColor = track.stopFulfilled ? '#22c55e' : currentSpeed > SPEED_THRESHOLD ? '#ef4444' : '#eab308';
           ctx.strokeStyle = stopColor;
           ctx.lineWidth = 3;
           ctx.strokeRect(sx, sy, sw, sh);
           ctx.fillStyle = stopColor;
           ctx.font = 'bold 14px monospace';
-          const stopLabel = `STOP ${Math.round(stopSign.score * 100)}% | ${Math.round(currentSpeed)}px/f`;
+          const stopLabel = track.stopFulfilled
+            ? `STOP ✓ ${Math.round(stopSign.score * 100)}%`
+            : `STOP ${Math.round(stopSign.score * 100)}% | ${Math.round(currentSpeed)}px/f`;
           ctx.fillText(stopLabel, sx, sy > 20 ? sy - 6 : sy + sh + 16);
         } else {
           if (stopTrackingRef.current) {
