@@ -383,61 +383,18 @@ const STOP_SIGN_HOLD_MS = 1000;
 const STOP_SPEED_THRESHOLD = 8;
 const STOP_SMOOTH_WINDOW = 4;
 
-function classifyLightColor(video, bbox) {
-  const [x, y, w, h] = bbox;
-  const sampleCanvas = document.createElement('canvas');
-  sampleCanvas.width = w;
-  sampleCanvas.height = h;
-  const sCtx = sampleCanvas.getContext('2d');
-  if (!sCtx) return 'unknown';
-  sCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
-
-  const thirdH = Math.floor(h / 3);
-  const regions = [
-    { name: 'red',    yStart: 0,            yEnd: thirdH },
-    { name: 'yellow', yStart: thirdH,       yEnd: thirdH * 2 },
-    { name: 'green',  yStart: thirdH * 2,   yEnd: h },
-  ];
-
-  let brightest = { name: 'unknown', brightness: 0, r: 0, g: 0, b: 0 };
-  for (const region of regions) {
-    const imgData = sCtx.getImageData(0, region.yStart, w, region.yEnd - region.yStart);
-    const px = imgData.data;
-    let totalR = 0, totalG = 0, totalB = 0, totalBrightness = 0;
-    const pixelCount = px.length / 4;
-    for (let i = 0; i < px.length; i += 4) {
-      totalR += px[i];
-      totalG += px[i + 1];
-      totalB += px[i + 2];
-      totalBrightness += px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
-    }
-    const avg = totalBrightness / pixelCount;
-    if (avg > brightest.brightness) {
-      brightest = {
-        name: region.name, brightness: avg,
-        r: totalR / pixelCount, g: totalG / pixelCount, b: totalB / pixelCount,
-      };
-    }
-  }
-
-  const { r, g, b, name } = brightest;
-  if (name === 'red' && r > g * 1.2 && r > b * 1.2) return 'red';
-  if (name === 'yellow' && r > b * 1.3 && g > b * 1.3) return 'yellow';
-  if (name === 'green' && g > r * 0.8 && g > b) return 'green';
-
-  if (r > g * 1.4 && r > b * 1.4) return 'red';
-  if (g > r * 1.0 && g > b * 1.2) return 'green';
-  if (r > b * 1.3 && g > b * 1.3 && r > 80) return 'yellow';
-
-  return brightest.name;
-}
+const TM_MODEL_URL = '/traffic-light-model/model.json';
+const TM_LABELS = ['off', 'red', 'green', 'yellow', 'switch'];
+const TM_IMAGE_SIZE = 224;
+const TM_CONFIDENCE = 0.70;
 
 function BrowserCameraMode({ onDetection }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const modelRef = useRef(null);
-  const stopTrackingRef = useRef(null);     // stop sign tracking
-  const redLightTrackingRef = useRef(null); // red light tracking
+  const tmModelRef = useRef(null);
+  const stopTrackingRef = useRef(null);
+  const redLightTrackingRef = useRef(null);
   const lastRedViolationRef = useRef(0);
   const lastStopViolationRef = useRef(0);
   const intervalRef = useRef(null);
@@ -516,21 +473,30 @@ function BrowserCameraMode({ onDetection }) {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadModel() {
+    async function loadModels() {
       try {
+        setStatus('loading models...');
         const tf = await import('@tensorflow/tfjs');
         await tf.ready();
+        window.__tfjs = tf;
+
         const cocoSsd = await import('@tensorflow-models/coco-ssd');
-        const model = await cocoSsd.load();
+        const cocoModel = await cocoSsd.load();
         if (cancelled) return;
-        modelRef.current = model;
+        modelRef.current = cocoModel;
+
+        const tmModel = await tf.loadLayersModel(TM_MODEL_URL);
+        if (cancelled) return;
+        tmModelRef.current = tmModel;
+
         setModelReady(true);
-        setStatus('model ready — select a camera');
-      } catch {
-        setStatus('failed to load model');
+        setStatus('models ready — select a camera');
+      } catch (err) {
+        console.error('Model load error:', err);
+        setStatus('failed to load models');
       }
     }
-    loadModel();
+    loadModels();
     return () => { cancelled = true; };
   }, []);
 
@@ -592,8 +558,9 @@ function BrowserCameraMode({ onDetection }) {
     function detect() {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      const model = modelRef.current;
-      if (!video || !canvas || !model || video.readyState < 2) return;
+      const cocoModel = modelRef.current;
+      const tmModel = tmModelRef.current;
+      if (!video || !canvas || !cocoModel || !tmModel || video.readyState < 2) return;
 
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
@@ -601,53 +568,65 @@ function BrowserCameraMode({ onDetection }) {
       canvas.height = video.videoHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      model.detect(video).then((predictions) => {
+      const tf = window.__tfjs;
+      if (!tf) return;
+
+      // ── Traffic light detection (custom Teachable Machine model) ────
+      const tmResult = tf.tidy(() => {
+        const img = tf.browser.fromPixels(video)
+          .resizeBilinear([TM_IMAGE_SIZE, TM_IMAGE_SIZE])
+          .toFloat()
+          .div(127.5)
+          .sub(1)
+          .expandDims(0);
+        return tmModel.predict(img);
+      });
+
+      tmResult.data().then((probabilities) => {
+        tmResult.dispose();
         if (cancelled) return;
 
-        // ── Traffic light detection ────────────────────────────────────
-        const trafficLight = predictions.find(
-          (p) => p.class === 'traffic light' && p.score >= CONFIDENCE_THRESHOLD
-        );
+        let maxIdx = 0;
+        for (let i = 1; i < probabilities.length; i++) {
+          if (probabilities[i] > probabilities[maxIdx]) maxIdx = i;
+        }
+        const confidence = probabilities[maxIdx];
+        const detected = TM_LABELS[maxIdx];
 
-        if (trafficLight) {
-          const [x, y, w, h] = trafficLight.bbox;
-          const lightColor = classifyLightColor(video, trafficLight.bbox);
-          const cx = x + w / 2;
-          const cy = y + h / 2;
+        if (confidence >= TM_CONFIDENCE && detected !== 'off' && detected !== 'switch') {
+          const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e' };
+          const color = colorMap[detected] || '#64748b';
 
-          const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e', unknown: '#64748b' };
-          const boxColor = colorMap[lightColor] || '#64748b';
+          ctx.fillStyle = color;
+          ctx.font = 'bold 16px monospace';
+          ctx.fillText(`${detected.toUpperCase()} LIGHT ${Math.round(confidence * 100)}%`, 10, 24);
 
-          ctx.strokeStyle = boxColor;
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x, y, w, h);
-          ctx.fillStyle = boxColor;
-          ctx.font = 'bold 14px monospace';
-          const label = `${lightColor.toUpperCase()} ${Math.round(trafficLight.score * 100)}%`;
-          ctx.fillText(label, x, y > 20 ? y - 6 : y + h + 16);
-
-          if (lightColor === 'red') {
+          if (detected === 'red') {
             if (!redLightTrackingRef.current) {
-              redLightTrackingRef.current = { positions: [], framesVisible: 0 };
+              redLightTrackingRef.current = { framesVisible: 0 };
             }
-            const track = redLightTrackingRef.current;
-            track.positions.push({ x: cx, y: cy });
-            track.framesVisible++;
+            redLightTrackingRef.current.framesVisible++;
           } else {
-            // green / yellow / unknown — no penalty, no log, no banner
             if (redLightTrackingRef.current) {
-              evaluateRedLightTracking(redLightTrackingRef.current);
+              if (redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
+                addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
+              }
               redLightTrackingRef.current = null;
             }
           }
         } else {
           if (redLightTrackingRef.current) {
-            evaluateRedLightTracking(redLightTrackingRef.current);
+            if (redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
+              addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
+            }
             redLightTrackingRef.current = null;
           }
         }
+      });
 
-        // ── Stop sign detection ────────────────────────────────────────
+      // ── Stop sign detection (COCO-SSD) ──────────────────────────────
+      cocoModel.detect(video).then((predictions) => {
+        if (cancelled) return;
         const stopSign = predictions.find(
           (p) => p.class === 'stop sign' && p.score >= CONFIDENCE_THRESHOLD
         );
@@ -718,10 +697,6 @@ function BrowserCameraMode({ onDetection }) {
           }
         }
 
-        // ── Other detections (speeding, tailgating, phone use, etc.) ──
-        // Commented out — only red light & stop sign violations are logged
-        // const otherEvents = predictions.filter(p => !['traffic light','stop sign'].includes(p.class));
-        // ... handle other events here if needed in the future
       });
     }
 
@@ -737,7 +712,7 @@ function BrowserCameraMode({ onDetection }) {
       setRedLightActive(false);
       setStopViolationActive(false);
     };
-  }, [selectedCamera, modelReady, evaluateRedLightTracking, evaluateStopSignTracking, onDetection]);
+  }, [selectedCamera, modelReady, evaluateStopSignTracking, addRedLightViolation, onDetection]);
 
   return (
     <>
