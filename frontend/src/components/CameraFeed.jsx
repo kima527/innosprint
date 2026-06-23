@@ -386,7 +386,8 @@ const STOP_SMOOTH_WINDOW = 4;
 const TM_MODEL_URL = '/traffic-light-model/model.json';
 const TM_LABELS = ['off', 'red', 'green', 'yellow', 'switch'];
 const TM_IMAGE_SIZE = 224;
-const TM_CONFIDENCE = 0.70;
+const TM_CONFIDENCE = 0.55;
+const MIN_RED_FRAMES = 2;
 
 function BrowserCameraMode({ onDetection }) {
   const videoRef = useRef(null);
@@ -628,7 +629,7 @@ function BrowserCameraMode({ onDetection }) {
             }
             redLightTrackingRef.current.framesVisible++;
           } else if (detected === 'green') {
-            if (redLightTrackingRef.current && redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
+            if (redLightTrackingRef.current && redLightTrackingRef.current.framesVisible >= MIN_RED_FRAMES) {
               addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
             }
             redLightTrackingRef.current = null;
