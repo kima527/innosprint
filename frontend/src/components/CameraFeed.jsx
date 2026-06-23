@@ -625,14 +625,13 @@ function BrowserCameraMode({ onDetection }) {
 
           if (detected === 'red') {
             if (!redLightTrackingRef.current) {
-              redLightTrackingRef.current = { framesVisible: 0 };
+              redLightTrackingRef.current = { framesVisible: 0, violated: false };
             }
             redLightTrackingRef.current.framesVisible++;
-          } else if (detected === 'green') {
-            if (redLightTrackingRef.current && redLightTrackingRef.current.framesVisible >= MIN_RED_FRAMES) {
+            if (!redLightTrackingRef.current.violated && redLightTrackingRef.current.framesVisible >= MIN_RED_FRAMES) {
+              redLightTrackingRef.current.violated = true;
               addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
             }
-            redLightTrackingRef.current = null;
           } else {
             redLightTrackingRef.current = null;
           }
