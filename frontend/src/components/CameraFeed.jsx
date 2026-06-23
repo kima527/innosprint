@@ -83,10 +83,15 @@ function Viewport({ live, children }) {
 
 function IdleOverlay({ hint, icon }) {
   return (
-    <div style={{ textAlign: 'center', color: '#475569' }}>
-      {icon ?? <Camera size={48} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />}
-      <p style={{ fontSize: '0.85rem' }}>No camera connected</p>
-      <p style={{ fontSize: '0.72rem', marginTop: '0.3rem', color: '#334155' }}>{hint}</p>
+    <div style={{
+      position: 'absolute', inset: 0,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{ textAlign: 'center', color: '#475569' }}>
+        {icon ?? <Camera size={48} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />}
+        <p style={{ fontSize: '0.85rem' }}>No camera connected</p>
+        <p style={{ fontSize: '0.72rem', marginTop: '0.3rem', color: '#334155' }}>{hint}</p>
+      </div>
     </div>
   );
 }
@@ -374,7 +379,7 @@ const DETECTION_INTERVAL = 150;
 const SPEED_THRESHOLD = 15;
 const MIN_FRAMES_FOR_STOP = 8;
 const COOLDOWN_MS = 3000;
-const STOP_SIGN_HOLD_MS = 3000;
+const STOP_SIGN_HOLD_MS = 1000;
 const STOP_SPEED_THRESHOLD = 8;
 const STOP_SMOOTH_WINDOW = 4;
 
