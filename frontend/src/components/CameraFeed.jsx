@@ -596,31 +596,39 @@ function BrowserCameraMode({ onDetection }) {
         if (confidence >= TM_CONFIDENCE && detected !== 'off' && detected !== 'switch') {
           const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e' };
           const color = colorMap[detected] || '#64748b';
+          const pct = Math.round(confidence * 100);
 
+          const boxW = 180, boxH = 36, boxX = canvas.width - boxW - 10, boxY = 10;
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.beginPath();
+          ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+          ctx.stroke();
           ctx.fillStyle = color;
-          ctx.font = 'bold 16px monospace';
-          ctx.fillText(`${detected.toUpperCase()} LIGHT ${Math.round(confidence * 100)}%`, 10, 24);
+          ctx.beginPath();
+          ctx.arc(boxX + 16, boxY + boxH / 2, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 13px monospace';
+          ctx.fillText(`${detected.toUpperCase()} ${pct}%`, boxX + 28, boxY + boxH / 2 + 4);
 
           if (detected === 'red') {
             if (!redLightTrackingRef.current) {
               redLightTrackingRef.current = { framesVisible: 0 };
             }
             redLightTrackingRef.current.framesVisible++;
-          } else {
-            if (redLightTrackingRef.current) {
-              if (redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
-                addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
-              }
-              redLightTrackingRef.current = null;
-            }
-          }
-        } else {
-          if (redLightTrackingRef.current) {
-            if (redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
+          } else if (detected === 'green') {
+            if (redLightTrackingRef.current && redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
               addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
             }
             redLightTrackingRef.current = null;
           }
+        } else {
+          redLightTrackingRef.current = null;
         }
       });
 
