@@ -399,6 +399,7 @@ function BrowserCameraMode({ onDetection }) {
   const lastStopViolationRef = useRef(0);
   const intervalRef = useRef(null);
   const streamRef = useRef(null);
+  const tmDisplayRef = useRef(null);
 
   const [status, setStatus] = useState('loading model...');
   const [cameras, setCameras] = useState([]);
@@ -488,7 +489,6 @@ function BrowserCameraMode({ onDetection }) {
         const tmModel = await tf.loadLayersModel(TM_MODEL_URL);
         if (cancelled) return;
         tmModelRef.current = tmModel;
-
         setModelReady(true);
         setStatus('models ready — select a camera');
       } catch (err) {
@@ -568,6 +568,28 @@ function BrowserCameraMode({ onDetection }) {
       canvas.height = video.videoHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      // ── Draw last TM result (persisted in ref so it survives clearRect) ──
+      const tmDraw = tmDisplayRef.current;
+      if (tmDraw) {
+        const boxW = 200, boxH = 36, boxX = canvas.width - boxW - 10, boxY = 10;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+        ctx.fill();
+        ctx.strokeStyle = tmDraw.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+        ctx.stroke();
+        ctx.fillStyle = tmDraw.color;
+        ctx.beginPath();
+        ctx.arc(boxX + 16, boxY + boxH / 2, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 13px monospace';
+        ctx.fillText(tmDraw.label, boxX + 28, boxY + boxH / 2 + 4);
+      }
+
       const tf = window.__tfjs;
       if (!tf) return;
 
@@ -598,24 +620,7 @@ function BrowserCameraMode({ onDetection }) {
           const color = colorMap[detected] || '#64748b';
           const pct = Math.round(confidence * 100);
           const label = detected === 'off' ? 'TRAFFIC LIGHT' : `${detected.toUpperCase()} ${pct}%`;
-
-          const boxW = 200, boxH = 36, boxX = canvas.width - boxW - 10, boxY = 10;
-          ctx.fillStyle = 'rgba(0,0,0,0.6)';
-          ctx.beginPath();
-          ctx.roundRect(boxX, boxY, boxW, boxH, 6);
-          ctx.fill();
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.roundRect(boxX, boxY, boxW, boxH, 6);
-          ctx.stroke();
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.arc(boxX + 16, boxY + boxH / 2, 6, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#fff';
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText(label, boxX + 28, boxY + boxH / 2 + 4);
+          tmDisplayRef.current = { color, label };
 
           if (detected === 'red') {
             if (!redLightTrackingRef.current) {
@@ -631,6 +636,7 @@ function BrowserCameraMode({ onDetection }) {
             redLightTrackingRef.current = null;
           }
         } else {
+          tmDisplayRef.current = null;
           redLightTrackingRef.current = null;
         }
       });
