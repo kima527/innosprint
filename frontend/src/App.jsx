@@ -70,7 +70,7 @@ export default function App() {
               DashCam
             </h1>
             <p style={{ fontSize: '0.6rem', color: '#64748b', letterSpacing: '0.05em' }}>
-              Real-time driving analysis
+              Driving analysis
             </p>
           </div>
         </div>
@@ -176,10 +176,7 @@ export default function App() {
         }}
       >
         <p style={{ fontSize: '0.6rem', color: '#475569' }}>
-          DashCam — TF.js + FastAPI
-        </p>
-        <p style={{ fontSize: '0.6rem', color: '#475569', fontFamily: 'var(--font-mono)' }}>
-          ws://localhost:8000
+          DashCam
         </p>
       </footer>
     </div>

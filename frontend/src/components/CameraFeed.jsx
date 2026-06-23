@@ -1,5 +1,5 @@
 // ============================================================================
-//  CameraFeed.jsx — Dual-mode camera: IP MJPEG stream OR Local USB/Lightning
+//  CameraFeed.jsx
 // ============================================================================
 //
 //  Mode A (IP Camera):
@@ -264,11 +264,11 @@ function LocalCameraMode() {
             style={{ ...inputStyle, paddingRight: '2rem', appearance: 'none', cursor: 'pointer' }}
           >
             {cameras.length === 0 ? (
-              <option value={0}>Device 0 (default — click Scan first)</option>
+              <option value={0}>Device 0 (default)</option>
             ) : (
               cameras.map((c) => (
                 <option key={c.index} value={c.index}>
-                  Device {c.index} — {c.width}×{c.height}
+                  Device {c.index} ({c.width}x{c.height})
                 </option>
               ))
             )}
@@ -433,20 +433,18 @@ function BrowserCameraMode({ onDetection }) {
   const [redLightActive, setRedLightActive] = useState(false);
   const [stopViolationActive, setStopViolationActive] = useState(false);
 
-  // ── Red light violation — banner only on actual violation ───────────────
   const addRedLightViolation = useCallback((avgSpeed, framesVisible) => {
     const now = Date.now();
     if (now - lastRedViolationRef.current < COOLDOWN_MS) return;
     lastRedViolationRef.current = now;
 
-    // Show warning banner only when violation is confirmed; auto-hide after 3s
     setRedLightActive(true);
     setTimeout(() => setRedLightActive(false), 3000);
 
     if (onDetection) {
       onDetection({
         type: 'critical',
-        message: `🚨 Red Light Violation — vehicle passed at ${Math.round(avgSpeed)}px/f avg speed (${framesVisible} frames visible, needed ${MIN_FRAMES_FOR_STOP}+ to count as stopped)`,
+        message: `Red light violation detected (${framesVisible} frames)`,
         scoreChange: -10,
       });
     }
@@ -463,7 +461,7 @@ function BrowserCameraMode({ onDetection }) {
     if (onDetection) {
       onDetection({
         type: 'critical',
-        message: `🛑 Stop Sign Violation — vehicle did not stop for the required ${STOP_SIGN_HOLD_MS / 1000}s (avg speed ${Math.round(avgSpeed)}px/f, ${framesVisible} frames visible)`,
+        message: `Stop sign violation: did not stop for ${STOP_SIGN_HOLD_MS / 1000}s`,
         scoreChange: -10,
       });
     }
@@ -501,7 +499,7 @@ function BrowserCameraMode({ onDetection }) {
         if (cancelled) return;
         tmModelRef.current = tmModel;
         setModelReady(true);
-        setStatus('models ready — select a camera');
+        setStatus('ready');
       } catch (err) {
         console.error('Model load error:', err);
         setStatus('failed to load models');
@@ -724,8 +722,8 @@ function BrowserCameraMode({ onDetection }) {
           ctx.fillStyle = stopColor;
           ctx.font = 'bold 14px monospace';
           const stopLabel = track.stopFulfilled
-            ? `STOP ✓ ${Math.round(stopSign.score * 100)}%`
-            : `STOP ${Math.round(stopSign.score * 100)}% | ${Math.round(currentSpeed)}px/f`;
+            ? `STOP OK ${Math.round(stopSign.score * 100)}%`
+            : `STOP ${Math.round(stopSign.score * 100)}%`;
           ctx.fillText(stopLabel, sx, sy > 20 ? sy - 6 : sy + sh + 16);
         } else {
           if (stopTrackingRef.current) {
@@ -801,7 +799,7 @@ function BrowserCameraMode({ onDetection }) {
           }}
         />
 
-        {/* ── Violation Banners — top-center, pulse while active ── */}
+        {/* Violation banner */}
         {(redLightActive || stopViolationActive) && (
           <div
             style={{
@@ -831,7 +829,7 @@ function BrowserCameraMode({ onDetection }) {
 
         {!selectedCamera && !detecting && (
           <IdleOverlay
-            hint="Select a browser camera above. TF.js will detect traffic lights and stop signs in real time."
+            hint="Select a camera to start detecting."
             icon={<Monitor size={48} style={{ margin: '0 auto 0.75rem', opacity: 0.35 }} />}
           />
         )}
@@ -840,7 +838,6 @@ function BrowserCameraMode({ onDetection }) {
   );
 }
 
-// ── Root component — Browser Detect only ──────────────────────────────────
 
 export default function CameraFeed({ onDetection }) {
   return (
