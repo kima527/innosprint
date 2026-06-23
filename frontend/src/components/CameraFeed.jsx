@@ -593,12 +593,13 @@ function BrowserCameraMode({ onDetection }) {
         const confidence = probabilities[maxIdx];
         const detected = TM_LABELS[maxIdx];
 
-        if (confidence >= TM_CONFIDENCE && detected !== 'off' && detected !== 'switch') {
-          const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e' };
+        if (confidence >= TM_CONFIDENCE && detected !== 'switch') {
+          const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e', off: '#64748b' };
           const color = colorMap[detected] || '#64748b';
           const pct = Math.round(confidence * 100);
+          const label = detected === 'off' ? 'TRAFFIC LIGHT' : `${detected.toUpperCase()} ${pct}%`;
 
-          const boxW = 180, boxH = 36, boxX = canvas.width - boxW - 10, boxY = 10;
+          const boxW = 200, boxH = 36, boxX = canvas.width - boxW - 10, boxY = 10;
           ctx.fillStyle = 'rgba(0,0,0,0.6)';
           ctx.beginPath();
           ctx.roundRect(boxX, boxY, boxW, boxH, 6);
@@ -614,7 +615,7 @@ function BrowserCameraMode({ onDetection }) {
           ctx.fill();
           ctx.fillStyle = '#fff';
           ctx.font = 'bold 13px monospace';
-          ctx.fillText(`${detected.toUpperCase()} ${pct}%`, boxX + 28, boxY + boxH / 2 + 4);
+          ctx.fillText(label, boxX + 28, boxY + boxH / 2 + 4);
 
           if (detected === 'red') {
             if (!redLightTrackingRef.current) {
@@ -625,6 +626,8 @@ function BrowserCameraMode({ onDetection }) {
             if (redLightTrackingRef.current && redLightTrackingRef.current.framesVisible >= MIN_FRAMES_FOR_STOP) {
               addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
             }
+            redLightTrackingRef.current = null;
+          } else {
             redLightTrackingRef.current = null;
           }
         } else {
