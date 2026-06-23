@@ -386,8 +386,31 @@ const STOP_SMOOTH_WINDOW = 2;
 const TM_MODEL_URL = '/traffic-light-model/model.json';
 const TM_LABELS = ['off', 'red', 'green', 'yellow', 'switch'];
 const TM_IMAGE_SIZE = 224;
-const TM_CONFIDENCE = 0.70;
+const TM_CONFIDENCE = 0.40;
 const MIN_RED_FRAMES = 5;
+const RED_BRIGHT_THRESHOLD = 150;
+const RED_DOMINANCE = 40;
+const RED_PIXEL_RATIO = 0.005;
+
+function isRedLightOn(video, canvas) {
+  const sample = document.createElement('canvas');
+  const sw = 160, sh = 120;
+  sample.width = sw;
+  sample.height = sh;
+  const sctx = sample.getContext('2d');
+  sctx.drawImage(video, 0, 0, sw, sh);
+  const data = sctx.getImageData(0, 0, sw, sh).data;
+  let brightRed = 0;
+  const total = sw * sh;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i + 1], b = data[i + 2];
+    if (r > RED_BRIGHT_THRESHOLD && r - g > RED_DOMINANCE && r - b > RED_DOMINANCE) {
+      brightRed++;
+    }
+  }
+  const ratio = brightRed / total;
+  return ratio >= RED_PIXEL_RATIO;
+}
 
 function BrowserCameraMode({ onDetection }) {
   const videoRef = useRef(null);
@@ -605,21 +628,31 @@ function BrowserCameraMode({ onDetection }) {
 
         if (confidence >= TM_CONFIDENCE && detected !== 'switch') {
           const colorMap = { red: '#ef4444', yellow: '#eab308', green: '#22c55e', off: '#64748b' };
-          const color = colorMap[detected] || '#64748b';
-          const pct = Math.round(confidence * 100);
-          const label = detected === 'off' ? 'TRAFFIC LIGHT' : `${detected.toUpperCase()} ${pct}%`;
-          tmDisplayRef.current = { color, label };
 
           if (detected === 'red') {
-            if (!redLightTrackingRef.current) {
-              redLightTrackingRef.current = { framesVisible: 0, violated: false };
-            }
-            redLightTrackingRef.current.framesVisible++;
-            if (!redLightTrackingRef.current.violated && redLightTrackingRef.current.framesVisible >= MIN_RED_FRAMES) {
-              redLightTrackingRef.current.violated = true;
-              addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
+            const redConfirmed = isRedLightOn(video, canvas);
+            console.log('TM: red', (confidence * 100).toFixed(1) + '%', 'LED on:', redConfirmed);
+
+            if (redConfirmed) {
+              const pct = Math.round(confidence * 100);
+              tmDisplayRef.current = { color: colorMap.red, label: `RED ${pct}%` };
+              if (!redLightTrackingRef.current) {
+                redLightTrackingRef.current = { framesVisible: 0, violated: false };
+              }
+              redLightTrackingRef.current.framesVisible++;
+              if (!redLightTrackingRef.current.violated && redLightTrackingRef.current.framesVisible >= MIN_RED_FRAMES) {
+                redLightTrackingRef.current.violated = true;
+                addRedLightViolation(0, redLightTrackingRef.current.framesVisible);
+              }
+            } else {
+              tmDisplayRef.current = { color: colorMap.off, label: 'TRAFFIC LIGHT' };
+              redLightTrackingRef.current = null;
             }
           } else {
+            const color = colorMap[detected] || '#64748b';
+            const pct = Math.round(confidence * 100);
+            const label = detected === 'off' ? 'TRAFFIC LIGHT' : `${detected.toUpperCase()} ${pct}%`;
+            tmDisplayRef.current = { color, label };
             redLightTrackingRef.current = null;
           }
         } else {
