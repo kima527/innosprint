@@ -379,15 +379,15 @@ const DETECTION_INTERVAL = 150;
 const SPEED_THRESHOLD = 15;
 const MIN_FRAMES_FOR_STOP = 8;
 const COOLDOWN_MS = 3000;
-const STOP_SIGN_HOLD_MS = 1000;
-const STOP_SPEED_THRESHOLD = 8;
-const STOP_SMOOTH_WINDOW = 4;
+const STOP_SIGN_HOLD_MS = 500;
+const STOP_SPEED_THRESHOLD = 10;
+const STOP_SMOOTH_WINDOW = 2;
 
 const TM_MODEL_URL = '/traffic-light-model/model.json';
 const TM_LABELS = ['off', 'red', 'green', 'yellow', 'switch'];
 const TM_IMAGE_SIZE = 224;
-const TM_CONFIDENCE = 0.55;
-const MIN_RED_FRAMES = 2;
+const TM_CONFIDENCE = 0.70;
+const MIN_RED_FRAMES = 5;
 
 function BrowserCameraMode({ onDetection }) {
   const videoRef = useRef(null);
@@ -446,19 +446,6 @@ function BrowserCameraMode({ onDetection }) {
     }
   }, [onDetection]);
 
-  const evaluateRedLightTracking = useCallback((track) => {
-    if (track.positions.length < 2) return;
-    let totalDisplacement = 0;
-    for (let i = 1; i < track.positions.length; i++) {
-      const dx = track.positions[i].x - track.positions[i - 1].x;
-      const dy = track.positions[i].y - track.positions[i - 1].y;
-      totalDisplacement += Math.sqrt(dx * dx + dy * dy);
-    }
-    const avgSpeed = totalDisplacement / (track.positions.length - 1);
-    if (avgSpeed > SPEED_THRESHOLD && track.framesVisible < MIN_FRAMES_FOR_STOP) {
-      addRedLightViolation(avgSpeed, track.framesVisible);
-    }
-  }, [addRedLightViolation]);
 
   const evaluateStopSignTracking = useCallback((track) => {
     if (track.stopFulfilled) return;
